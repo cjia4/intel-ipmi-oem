@@ -24,6 +24,7 @@
 #include <phosphor-logging/log.hpp>
 #include <sdbusplus/bus.hpp>
 #include <oobcommands.hpp>
+#include <ImageUpdate.hpp>
 
 namespace ipmi
 {
@@ -87,6 +88,80 @@ ipmi_ret_t ipmiOOBSetPayload(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
     return rc;
 }
 
+
+
+
+ipmi_ret_t ipmiOOBGetPayload(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
+                             ipmi_request_t request,
+                             ipmi_response_t response,
+                             ipmi_data_len_t dataLen,
+                             ipmi_context_t context)
+{
+    GetPayloadReq*  pPayloadReq  = reinterpret_cast<GetPayloadReq*>(request);
+    GetPayloadResp* pPayloadResp = reinterpret_cast<GetPayloadResp*>(response);
+    uint32_t u32Crc;
+    uint8_t  *Imgbuffer;
+    size_t   returnSize=0;
+    OOBImageType currentPayloadType =static_cast<OOBImageType>(pPayloadReq->Input.Para0.payloadType);
+    ipmi_ret_t rc=IPMI_CC_OK;
+
+    //This is a must step as CurrentPayloadType == INVALID_IMG_TYPE after module init or each transfer complete.
+    if (currentPayloadType >= OOBImageType::invalidType) {
+        phosphor::logging::log<phosphor::logging::level::ERR>("invalid image type");
+        *dataLen = 0;
+        return OOBCompleteCode::compcodePayloadTypeNotSupported;
+    }
+
+    phosphor::logging::log<phosphor::logging::level::DEBUG>("ipmiOOBGetPayload", phosphor::logging::entry("ipmiOOBGetPayload Param=%x", pPayloadReq->paraSel));
+
+    switch(pPayloadReq->paraSel) {
+        case GetPayloadParameter::PayloadInfo:
+            returnSize = 0;
+            pPayloadResp->Output.Para0.payloadType = pPayloadReq->Input.Para0.payloadType;
+            pPayloadResp->Output.Para0.payloadVersion = gPayload[pPayloadReq->Input.Para0.payloadType].payloadVersion;
+            pPayloadResp->Output.Para0.totalPayloadlength = gPayload[pPayloadReq->Input.Para0.payloadType].givenPayloadSize;
+            pPayloadResp->Output.Para0.totalPayloadchecksum = gPayload[pPayloadReq->Input.Para0.payloadType].givenPayloadChecksum;
+            pPayloadResp->Output.Para0.payloadCurrentStatus = gPayload[pPayloadReq->Input.Para0.payloadType].status;
+            pPayloadResp->Output.Para0.timeStamp = gPayload[pPayloadReq->Input.Para0.payloadType].uploadTimeStamp;
+            pPayloadResp->Output.Para0.payloadFlag = gPayload[pPayloadReq->Input.Para0.payloadType].payloadFlag;
+            rc = IPMI_CC_OK;
+            rc = sizeof(pPayloadResp->Output.Para0);
+
+            break;
+        case GetPayloadParameter::PayloadData:
+           if(pPayloadReq->Input.Para1.payloadLength == 0) {
+               rc = IPMI_CC_INVALID_FIELD_REQUEST;
+               *dataLen = 0;
+               break;
+           }
+           Imgbuffer = new uint8_t(pPayloadReq->Input.Para1.payloadLength);
+           if(Imgbuffer != NULL) {
+               pPayloadResp->Output.Para1.actualPayloadlength = imgReadFromFile(pPayloadReq->Input.Para1.payloadType ,Imgbuffer, pPayloadReq->Input.Para1.payloadOffset,pPayloadReq->Input.Para1.payloadLength, &pPayloadResp->Output.Para1.actualPayloadChecksum );
+               rc=IPMI_CC_OK;
+               memcpy(pPayloadResp->Output.Para1.payloadData,Imgbuffer, pPayloadResp->Output.Para1.actualPayloadlength);
+               *dataLen =  pPayloadResp->Output.Para1.actualPayloadlength+ sizeof(pPayloadResp->Output.Para1.actualPayloadlength)+sizeof(pPayloadResp->Output.Para1.actualPayloadChecksum)+ sizeof(pPayloadResp->Output.Para1.payloadType) ;
+               delete Imgbuffer;
+           } else {
+               rc=OOBCompleteCode::compcodePayloadTypeNotSupported;
+               *dataLen = 0;
+           }
+
+          break;
+        case GetPayloadParameter::PayloadStatus:
+            pPayloadResp->Output.Para2.status= gPayload[pPayloadReq->Input.Para0.payloadType].status;
+            rc = IPMI_CC_OK;
+             *dataLen = sizeof(pPayloadResp->Output.Para2.status);
+            break;
+
+        default:
+            *dataLen = 0;
+            rc = IPMI_CC_INVALID_FIELD_REQUEST;
+    }
+
+    return rc;
+}
+
+
 static void initOOB(void)
 {
     phosphor::logging::log<phosphor::logging::level::INFO>(
@@ -99,6 +174,11 @@ static void initOOB(void)
         static_cast<ipmi_cmd_t>(
             IPMINetfnIntelOEMGeneralCmd::cmdSetPayload),
         NULL, ipmiOOBSetPayload, PRIVILEGE_ADMIN);
+    ipmiPrintAndRegister(
+        netfnIntcOEMGeneral,
+        static_cast<ipmi_cmd_t>(
+            IPMINetfnIntelOEMGeneralCmd::cmdGetPayload),
+        NULL, ipmiOOBGetPayload, PRIVILEGE_USER);
 
     return;
 }

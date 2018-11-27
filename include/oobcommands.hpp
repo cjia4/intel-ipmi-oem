@@ -73,6 +73,62 @@ union SetPayloadResp
 } ;
 
 
+
+struct GetPayloadReq
+{
+    uint8_t paraSel;    //Parameter Selector  0-Init 1-in Progress 2 -End of  transfer 3 - user abort
+    union Input{
+        struct Parameter0
+        {
+            uint8_t  payloadType;     // 1 byte    0-XML type 0 ; 1-XML type 1; 2-BIOS; 3 - ME image; 4- FD image
+        } Para0;      //when ParaSel == 0
+
+        struct Parameter1
+        {
+
+            uint8_t payloadType;
+            uint32_t payloadOffset; // 4 bytes Writing payload data offset to read
+            uint32_t payloadLength;   // 4 bytes  payload data length
+        } Para1;      //when ParaSel == 1
+        struct Parameter2
+        {
+            uint8_t  payloadType;     // 1 byte    0-XML type 0 ; 1-XML type 1; 2-BIOS; 3 - ME image; 4- FD image
+        } Para2;      //when ParaSel == 2
+
+    }Input;
+} ;
+
+
+struct GetPayloadResp
+{
+     union Output{
+        struct Parameter0
+        {
+            uint16_t  payloadVersion;     // 1 byte    0-XML type 0 ; 1-XML type 1; 2-BIOS; 3 - ME image; 4- FD image
+            uint8_t   payloadType;
+            uint32_t  totalPayloadlength;
+            uint32_t  totalPayloadchecksum;
+            uint8_t   payloadCurrentStatus;
+            uint8_t   payloadFlag;
+            uint32_t  timeStamp;
+        } Para0;      //when ParaSel == 0
+
+        struct Parameter1
+        {
+            uint8_t payloadType;
+            uint32_t actualPayloadlength;   // 4 bytes  payload data length
+            uint32_t actualPayloadChecksum; // 4 bytes Writing payload data checksum
+            uint8_t  payloadData[maxPayloadLengthPerTransfer];
+        } Para1;      //when ParaSel == 1
+        struct Parameter2
+        {
+            uint8_t  status;
+        } Para2;      //when ParaSel == 2
+
+    }Output ;
+} ;
+
+
 struct DataTransfer
 {
     uint8_t  imageType;
@@ -115,5 +171,10 @@ enum TransferState{
     PasswdAuth    = 5,
 };
 
+enum GetPayloadParameter{
+    PayloadInfo = 0,
+    PayloadData= 1,   //data transfer
+    PayloadStatus = 2
+};
 
 #pragma pack(pop)
